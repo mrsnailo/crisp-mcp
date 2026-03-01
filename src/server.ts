@@ -724,10 +724,10 @@ export function createServer(crispClient: CrispClient, config?: ServerConfig): S
             );
           }
           const maxResults = (args?.max_results as number) || 3;
-          const kbStatus = getKBStatus();
+          const kbStatus = await getKBStatus();
           if (!kbStatus.available) {
             throw new Error(
-              "Knowledge base not available. Run 'npx tsx src/kb-sync.ts' to sync articles."
+              "Knowledge base not available. Run kb-sync or set KB_BLOB_URL."
             );
           }
           const results = await searchKnowledgeBase(query, config.kb, maxResults);

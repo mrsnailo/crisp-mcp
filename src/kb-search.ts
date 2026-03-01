@@ -1,8 +1,8 @@
 /**
  * Knowledge Base Search Module
  *
- * Loads pre-computed embeddings and performs cosine similarity search.
- * Used by the MCP server to answer product questions from the helpdesk KB.
+ * Loads pre-computed embeddings from Vercel Blob (or local fallback)
+ * and performs cosine similarity search.
  */
 
 import * as fs from "fs";
@@ -39,31 +39,52 @@ export interface SearchResult {
 
 // Cached KB data
 let cachedKB: KBData | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-function getDataPath(): string {
-  // Check multiple possible locations (dist/ vs src/, Vercel vs local)
+async function loadFromBlob(): Promise<KBData | null> {
+  const blobUrl = process.env.KB_BLOB_URL;
+  if (!blobUrl) return null;
+
+  try {
+    const response = await fetch(blobUrl);
+    if (!response.ok) return null;
+    return (await response.json()) as KBData;
+  } catch {
+    return null;
+  }
+}
+
+function loadFromFile(): KBData | null {
   const candidates = [
     path.join(__dirname, "..", "data", "kb-embeddings.json"),
     path.join(__dirname, "..", "..", "data", "kb-embeddings.json"),
   ];
   for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, "utf-8")) as KBData;
+    }
   }
-  return candidates[0]; // Default, will fail with clear error
+  return null;
 }
 
-function loadKnowledgeBase(): KBData {
-  if (cachedKB) return cachedKB;
+async function loadKnowledgeBase(): Promise<KBData> {
+  const now = Date.now();
+  if (cachedKB && now - cacheTimestamp < CACHE_TTL_MS) {
+    return cachedKB;
+  }
 
-  const dataPath = getDataPath();
-  if (!fs.existsSync(dataPath)) {
+  // Try Vercel Blob first, then local file fallback
+  const kb = (await loadFromBlob()) || loadFromFile();
+  if (!kb) {
     throw new Error(
-      `Knowledge base not found at ${dataPath}. Run 'npx tsx src/kb-sync.ts' to generate it.`
+      "Knowledge base not found. Run kb-sync or set KB_BLOB_URL."
     );
   }
 
-  cachedKB = JSON.parse(fs.readFileSync(dataPath, "utf-8")) as KBData;
-  return cachedKB;
+  cachedKB = kb;
+  cacheTimestamp = now;
+  return kb;
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -115,9 +136,8 @@ export async function searchKnowledgeBase(
   config: KBSearchConfig,
   topK = 3
 ): Promise<SearchResult[]> {
-  const kb = loadKnowledgeBase();
+  const kb = await loadKnowledgeBase();
 
-  // Embed the query using the same model that was used for the KB
   const queryEmbedding = await embedQuery(
     query,
     config.litellmBaseUrl,
@@ -125,7 +145,6 @@ export async function searchKnowledgeBase(
     kb.model
   );
 
-  // Compute similarity for each chunk
   const scored = kb.chunks.map((chunk) => ({
     title: chunk.title,
     category: chunk.category,
@@ -134,7 +153,6 @@ export async function searchKnowledgeBase(
     score: cosineSimilarity(queryEmbedding, chunk.embedding),
   }));
 
-  // Sort by score descending and take top-K
   scored.sort((a, b) => b.score - a.score);
 
   // Deduplicate by article title (keep highest-scoring chunk per article)
@@ -150,9 +168,14 @@ export async function searchKnowledgeBase(
   return results;
 }
 
-export function getKBStatus(): { available: boolean; synced_at?: string; article_count?: number; chunk_count?: number } {
+export async function getKBStatus(): Promise<{
+  available: boolean;
+  synced_at?: string;
+  article_count?: number;
+  chunk_count?: number;
+}> {
   try {
-    const kb = loadKnowledgeBase();
+    const kb = await loadKnowledgeBase();
     return {
       available: true,
       synced_at: kb.synced_at,
