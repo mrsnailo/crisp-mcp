@@ -61,7 +61,13 @@ async function handleRequest(request: Request): Promise<Response> {
   });
 
   const crispClient = getCrispClient();
-  const server = createServer(crispClient);
+  const litellmApiKey = process.env.LITELLM_API_KEY;
+  const litellmBaseUrl = process.env.LITELLM_BASE_URL || "https://litellm.tubeonai.com/v1";
+  const server = createServer(crispClient, {
+    kb: litellmApiKey
+      ? { litellmBaseUrl, litellmApiKey }
+      : undefined,
+  });
   await server.connect(transport);
 
   return transport.handleRequest(request);

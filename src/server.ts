@@ -13,6 +13,7 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { CrispClient, Conversation } from "./crisp-client.js";
+import { searchKnowledgeBase, getKBStatus, KBSearchConfig } from "./kb-search.js";
 
 // Define available tools
 const tools: Tool[] = [
@@ -327,6 +328,25 @@ const tools: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "search_knowledge_base",
+    description:
+      "Search TubeOnAI helpdesk knowledge base articles. Use this to find product documentation, FAQs, and how-to guides when answering customer questions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query describing what the customer needs help with",
+        },
+        max_results: {
+          type: "number",
+          description: "Maximum number of results to return (default: 3)",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 // Helper function to format conversation summary
@@ -349,7 +369,11 @@ function formatConversationSummary(conv: Conversation): Record<string, unknown> 
 /**
  * Create a configured MCP Server with all Crisp tools and resource handlers.
  */
-export function createServer(crispClient: CrispClient): Server {
+export interface ServerConfig {
+  kb?: KBSearchConfig;
+}
+
+export function createServer(crispClient: CrispClient, config?: ServerConfig): Server {
   const server = new Server(
     {
       name: "crisp-mcp",
@@ -684,6 +708,42 @@ export function createServer(crispClient: CrispClient): Server {
               {
                 type: "text",
                 text: JSON.stringify(visitors, null, 2),
+              },
+            ],
+          };
+        }
+
+        case "search_knowledge_base": {
+          const query = args?.query as string;
+          if (!query) {
+            throw new Error("query is required");
+          }
+          if (!config?.kb) {
+            throw new Error(
+              "Knowledge base search is not configured. Set LITELLM_API_KEY and LITELLM_BASE_URL."
+            );
+          }
+          const maxResults = (args?.max_results as number) || 3;
+          const kbStatus = getKBStatus();
+          if (!kbStatus.available) {
+            throw new Error(
+              "Knowledge base not available. Run 'npx tsx src/kb-sync.ts' to sync articles."
+            );
+          }
+          const results = await searchKnowledgeBase(query, config.kb, maxResults);
+          const formatted = results.map((r, i) => ({
+            rank: i + 1,
+            title: r.title,
+            category: r.category,
+            url: r.url,
+            relevance: Math.round(r.score * 100) + "%",
+            excerpt: r.text,
+          }));
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(formatted, null, 2),
               },
             ],
           };

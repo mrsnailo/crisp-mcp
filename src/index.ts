@@ -28,7 +28,14 @@ const crispClient = new CrispClient({
   websiteId: CRISP_WEBSITE_ID,
 });
 
-const server = createServer(crispClient);
+const LITELLM_BASE_URL = process.env.LITELLM_BASE_URL || "https://litellm.tubeonai.com/v1";
+const LITELLM_API_KEY = process.env.LITELLM_API_KEY;
+
+const server = createServer(crispClient, {
+  kb: LITELLM_API_KEY
+    ? { litellmBaseUrl: LITELLM_BASE_URL, litellmApiKey: LITELLM_API_KEY }
+    : undefined,
+});
 
 async function main() {
   const transport = new StdioServerTransport();

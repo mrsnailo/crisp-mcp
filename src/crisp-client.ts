@@ -128,7 +128,7 @@ export class CrispClient {
     return `Basic ${credentials}`;
   }
 
-  private async request<T>(
+  async request<T>(
     method: string,
     path: string,
     body?: unknown
