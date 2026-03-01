@@ -1,0 +1,10 @@
+{
+  "buildCommand": "",
+  "devCommand": "",
+  "framework": null,
+  "functions": {
+    "api/mcp.ts": {
+      "maxDuration": 60
+    }
+  }
+}
