@@ -515,13 +515,12 @@ export function createServer(crispClient: CrispClient, config?: ServerConfig): S
           const nickname = (args?.nickname as string) || "Support";
           const avatar = (args?.avatar as string) || "https://tubeonai.com/wp-content/uploads/2024/09/tubeonai_logo-100x100.webp";
 
-          const mentionIds = args?.mentions as string[] | undefined;
-          const mentioned = mentionIds?.map((id) => ({ user_id: id }));
+          const mentions = args?.mentions as string[] | undefined;
 
           const result = await crispClient.sendMessage(sessionId, content, {
             type: messageType,
             user: { nickname, avatar },
-            mentioned,
+            mentions,
           });
           return {
             content: [
