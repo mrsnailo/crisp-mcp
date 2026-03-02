@@ -106,7 +106,7 @@ export interface SendMessageOptions {
     avatar?: string;
   };
   stealth?: boolean;
-  mentions?: string[];
+  mentioned?: Array<{ user_id: string }>;
 }
 
 export class CrispClient {
@@ -294,7 +294,7 @@ export class CrispClient {
       origin = "chat",
       user,
       stealth = false,
-      mentions,
+      mentioned,
     } = options;
 
     const payload: Record<string, unknown> = {
@@ -308,8 +308,8 @@ export class CrispClient {
     if (user) {
       payload.user = user;
     }
-    if (mentions) {
-      payload.mentions = mentions;
+    if (mentioned && mentioned.length > 0) {
+      payload.mentioned = mentioned;
     }
 
     return this.request<{ fingerprint: number }>(

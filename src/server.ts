@@ -143,6 +143,12 @@ const tools: Tool[] = [
           description:
             "URL of the avatar image to display for the sender",
         },
+        mentions: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Array of operator user_ids to mention. Triggers real push/email notifications for mentioned operators. Use with type 'note' for internal mentions. Get operator IDs from the get_operators tool.",
+        },
       },
       required: ["session_id", "content"],
     },
@@ -509,9 +515,13 @@ export function createServer(crispClient: CrispClient, config?: ServerConfig): S
           const nickname = (args?.nickname as string) || "Support";
           const avatar = (args?.avatar as string) || "https://tubeonai.com/wp-content/uploads/2024/09/tubeonai_logo-100x100.webp";
 
+          const mentionIds = args?.mentions as string[] | undefined;
+          const mentioned = mentionIds?.map((id) => ({ user_id: id }));
+
           const result = await crispClient.sendMessage(sessionId, content, {
             type: messageType,
             user: { nickname, avatar },
+            mentioned,
           });
           return {
             content: [
