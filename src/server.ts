@@ -517,7 +517,12 @@ export function createServer(crispClient: CrispClient, config?: ServerConfig): S
 
           const mentions = args?.mentions as string[] | undefined;
 
-          const result = await crispClient.sendMessage(sessionId, content, {
+          // Sanitize: replace literal \n sequences with real newlines.
+          // LLMs often produce escaped \n in tool call JSON which arrives as
+          // the two-character string "\n" instead of an actual newline.
+          const sanitizedContent = content.replace(/\\n/g, "\n");
+
+          const result = await crispClient.sendMessage(sessionId, sanitizedContent, {
             type: messageType,
             user: { nickname, avatar },
             mentions,
