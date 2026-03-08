@@ -246,6 +246,7 @@ export async function GET(request: Request): Promise<Response> {
     const blob = await put("kb-embeddings.json", JSON.stringify(kbData), {
       access: "public",
       addRandomSuffix: false,
+      allowOverwrite: true,
     });
 
     return new Response(
