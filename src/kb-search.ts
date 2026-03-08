@@ -1,9 +1,8 @@
 /**
  * Knowledge Base Search Module
  *
- * Loads pre-computed embeddings from local file (Docker volume) or
- * remote URL (Vercel Blob, Coolify S3, etc.) and performs cosine
- * similarity search.
+ * Loads pre-computed embeddings from Vercel Blob (or local fallback)
+ * and performs cosine similarity search.
  */
 
 import * as fs from "fs";
@@ -47,13 +46,12 @@ let cacheTimestamp = 0;
 const IS_DOCKER = !!process.env.DOCKER || !process.env.VERCEL;
 const CACHE_TTL_MS = IS_DOCKER ? Infinity : 10 * 60 * 1000;
 
-async function loadFromRemote(): Promise<KBData | null> {
-  // Supports any HTTP URL: Vercel Blob, Coolify S3, or any static host
-  const remoteUrl = process.env.KB_REMOTE_URL || process.env.KB_BLOB_URL;
-  if (!remoteUrl) return null;
+async function loadFromBlob(): Promise<KBData | null> {
+  const blobUrl = process.env.KB_BLOB_URL;
+  if (!blobUrl) return null;
 
   try {
-    const response = await fetch(remoteUrl);
+    const response = await fetch(blobUrl);
     if (!response.ok) return null;
     return (await response.json()) as KBData;
   } catch {
@@ -85,15 +83,15 @@ async function loadKnowledgeBase(): Promise<KBData> {
     return cachedKB;
   }
 
-  // In Docker: local file first (volume-mounted), remote as fallback.
-  // On Vercel/remote: remote URL first, local file as fallback.
+  // In Docker: local file first (baked in), Blob as fallback.
+  // On Vercel: Blob first (managed), local file as fallback.
   const kb = IS_DOCKER
-    ? loadFromFile() || (await loadFromRemote())
-    : (await loadFromRemote()) || loadFromFile();
+    ? loadFromFile() || (await loadFromBlob())
+    : (await loadFromBlob()) || loadFromFile();
 
   if (!kb) {
     throw new Error(
-      "Knowledge base not found. Mount data/kb-embeddings.json or set KB_REMOTE_URL."
+      "Knowledge base not found. Mount data/kb-embeddings.json or set KB_BLOB_URL."
     );
   }
 
