@@ -1,9 +1,8 @@
 /**
  * Knowledge Base Search Module
  *
- * Loads pre-computed embeddings from local file (Docker volume) or
- * remote URL (Vercel Blob, Coolify S3, etc.) and performs cosine
- * similarity search.
+ * Loads pre-computed embeddings from local file (Docker volume at /app/data/)
+ * and performs cosine similarity search.
  */
 
 import * as fs from "fs";
@@ -38,68 +37,43 @@ export interface SearchResult {
   score: number;
 }
 
-// Cached KB data
+// Cached KB data — loaded once, persists for process lifetime
 let cachedKB: KBData | null = null;
-let cacheTimestamp = 0;
-
-// In Docker/Coolify: cache indefinitely (file is baked into image).
-// On Vercel: 10min TTL since Blob storage may be updated externally.
-const IS_DOCKER = !!process.env.DOCKER || !process.env.VERCEL;
-const CACHE_TTL_MS = IS_DOCKER ? Infinity : 10 * 60 * 1000;
-
-async function loadFromRemote(): Promise<KBData | null> {
-  // Supports any HTTP URL: Vercel Blob, Coolify S3, or any static host
-  const remoteUrl = process.env.KB_REMOTE_URL || process.env.KB_BLOB_URL;
-  if (!remoteUrl) return null;
-
-  try {
-    const response = await fetch(remoteUrl);
-    if (!response.ok) return null;
-    return (await response.json()) as KBData;
-  } catch {
-    return null;
-  }
-}
 
 function loadFromFile(): KBData | null {
-  // Check KB_FILE_PATH env first (Docker volume mount), then standard locations
-  const envPath = process.env.KB_FILE_PATH;
   const candidates = [
-    ...(envPath ? [envPath] : []),
+    process.env.KB_FILE_PATH,
+    "/app/data/kb-embeddings.json",
     path.join(__dirname, "..", "data", "kb-embeddings.json"),
     path.join(__dirname, "..", "..", "data", "kb-embeddings.json"),
-    "/app/data/kb-embeddings.json", // Docker default
-  ];
+  ].filter(Boolean) as string[];
+
   for (const p of candidates) {
     if (fs.existsSync(p)) {
-      console.log(`[kb] Loading knowledge base from ${p}`);
+      console.log(`[kb] Loaded knowledge base from ${p}`);
       return JSON.parse(fs.readFileSync(p, "utf-8")) as KBData;
     }
   }
   return null;
 }
 
-async function loadKnowledgeBase(): Promise<KBData> {
-  const now = Date.now();
-  if (cachedKB && now - cacheTimestamp < CACHE_TTL_MS) {
-    return cachedKB;
-  }
+function loadKnowledgeBase(): KBData {
+  if (cachedKB) return cachedKB;
 
-  // In Docker: local file first (volume-mounted), remote as fallback.
-  // On Vercel/remote: remote URL first, local file as fallback.
-  const kb = IS_DOCKER
-    ? loadFromFile() || (await loadFromRemote())
-    : (await loadFromRemote()) || loadFromFile();
-
+  const kb = loadFromFile();
   if (!kb) {
     throw new Error(
-      "Knowledge base not found. Mount data/kb-embeddings.json or set KB_REMOTE_URL."
+      "Knowledge base not found. Mount data/kb-embeddings.json or set KB_FILE_PATH."
     );
   }
 
   cachedKB = kb;
-  cacheTimestamp = now;
   return kb;
+}
+
+/** Call to reload KB from disk (e.g. after a sync). */
+export function reloadKnowledgeBase(): void {
+  cachedKB = null;
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -151,7 +125,7 @@ export async function searchKnowledgeBase(
   config: KBSearchConfig,
   topK = 3
 ): Promise<SearchResult[]> {
-  const kb = await loadKnowledgeBase();
+  const kb = loadKnowledgeBase();
 
   const queryEmbedding = await embedQuery(
     query,
@@ -190,7 +164,7 @@ export async function getKBStatus(): Promise<{
   chunk_count?: number;
 }> {
   try {
-    const kb = await loadKnowledgeBase();
+    const kb = loadKnowledgeBase();
     return {
       available: true,
       synced_at: kb.synced_at,

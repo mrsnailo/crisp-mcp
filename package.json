@@ -15,12 +15,10 @@
     "kb:sync": "tsx src/kb-sync.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "@vercel/blob": "^2.3.0"
+    "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@vercel/node": "^5.6.9",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0"
   },

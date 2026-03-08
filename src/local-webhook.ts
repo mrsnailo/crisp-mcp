@@ -1,43 +1,32 @@
 #!/usr/bin/env node
 /**
- * Crisp Webhook Handler
+ * Crisp Webhook Handler — Docker / Coolify
  *
- * Receives Crisp webhook events and triggers the OpenClaw support agent.
- *
- * Supports two modes:
- *   - CLI mode (default, bare metal): shells out to `openclaw agent` CLI
- *   - HTTP mode (Docker/Coolify): POSTs to OpenClaw gateway API
- *
- * Set OPENCLAW_TRIGGER_MODE=http and OPENCLAW_GATEWAY_URL for Docker deployments.
+ * Receives Crisp webhook events and triggers the OpenClaw support agent
+ * via HTTP POST to the OpenClaw gateway.
  *
  * Env vars:
- *   CRISP_WEBHOOK_SECRET     — Signing secret for HMAC-SHA256 verification
- *   CRISP_WEBSITE_ID         — Filter events to this website (optional)
- *   WEBHOOK_PORT             — Listen port (default: 3001)
- *   OPENCLAW_TRIGGER_MODE    — "cli" (default) or "http"
- *   OPENCLAW_GATEWAY_URL     — Gateway base URL (e.g. http://openclaw-support:18789)
- *   OPENCLAW_GATEWAY_TOKEN   — Auth token for gateway API
+ *   CRISP_WEBHOOK_SECRET   — Signing secret for HMAC-SHA256 verification
+ *   CRISP_WEBSITE_ID       — Filter events to this website (optional)
+ *   WEBHOOK_PORT           — Listen port (default: 3001)
+ *   OPENCLAW_GATEWAY_URL   — Gateway base URL (e.g. http://openclaw-support:18789)
+ *   OPENCLAW_GATEWAY_TOKEN — Auth token for gateway API
  */
 
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { createHmac } from "crypto";
-import { execFile } from "child_process";
 
 const PORT = parseInt(process.env.WEBHOOK_PORT || "3001", 10);
 const WEBHOOK_SECRET = process.env.CRISP_WEBHOOK_SECRET || "";
 const WEBSITE_ID = process.env.CRISP_WEBSITE_ID || "";
-
-// Docker/Coolify: trigger agent via HTTP gateway instead of CLI
-const TRIGGER_MODE = process.env.OPENCLAW_TRIGGER_MODE || "cli";
 const GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || "http://openclaw-support:18789";
 const GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || "";
 
 // --- Debounce ---
 
-const DEBOUNCE_MS = 30_000; // 30s window
-const recentTriggers = new Map<string, number>(); // session_id → timestamp
+const DEBOUNCE_MS = 30_000;
+const recentTriggers = new Map<string, number>();
 
-// Cleanup stale entries every 60s
 setInterval(() => {
   const cutoff = Date.now() - DEBOUNCE_MS;
   for (const [k, ts] of recentTriggers) {
@@ -92,8 +81,8 @@ function extractContent(
   return `[${msgType}]`;
 }
 
-function buildPrompt(sessionId: string, nickname: string, messageText: string): string {
-  return [
+async function triggerAgent(sessionId: string, nickname: string, messageText: string) {
+  const prompt = [
     `New Crisp live chat message received.`,
     ``,
     `Customer: ${nickname}`,
@@ -106,33 +95,7 @@ function buildPrompt(sessionId: string, nickname: string, messageText: string): 
     `3. Classify → follow the matching tier (KB search, investigate, or escalate)`,
     `4. Reply via crisp.send_message`,
   ].join("\n");
-}
 
-function triggerAgentViaCli(sessionId: string, prompt: string) {
-  execFile(
-    "openclaw",
-    [
-      "agent",
-      "--agent", "support",
-      "--message", prompt,
-      "--deliver",
-      "--reply-channel", "telegram:support",
-      "--reply-to", "1032439436",
-    ],
-    { timeout: 120_000 },
-    (error, stdout, stderr) => {
-      if (error) {
-        console.error(`[agent] CLI error:`, error.message);
-        if (stderr) console.error(`[agent] stderr:`, stderr);
-      } else {
-        console.log(`[agent] CLI done for session ${sessionId}`);
-        if (stdout) console.log(`[agent] Output:`, stdout.substring(0, 200));
-      }
-    }
-  );
-}
-
-async function triggerAgentViaHttp(sessionId: string, prompt: string) {
   try {
     const response = await fetch(`${GATEWAY_URL}/api/agent/run`, {
       method: "POST",
@@ -152,52 +115,35 @@ async function triggerAgentViaHttp(sessionId: string, prompt: string) {
 
     if (!response.ok) {
       const text = await response.text();
-      console.error(`[agent] HTTP error ${response.status}: ${text}`);
+      console.error(`[agent] Error ${response.status}: ${text}`);
     } else {
-      console.log(`[agent] HTTP triggered for session ${sessionId}`);
+      console.log(`[agent] Triggered for session ${sessionId}`);
     }
   } catch (err) {
-    console.error(`[agent] HTTP error:`, (err as Error).message);
-  }
-}
-
-function triggerAgent(sessionId: string, nickname: string, messageText: string) {
-  const prompt = buildPrompt(sessionId, nickname, messageText);
-
-  if (TRIGGER_MODE === "http") {
-    triggerAgentViaHttp(sessionId, prompt);
-  } else {
-    triggerAgentViaCli(sessionId, prompt);
+    console.error(`[agent] Error:`, (err as Error).message);
   }
 }
 
 // --- Server ---
 
 const server = createServer(async (req, res) => {
-  // Health check
   if (req.method === "GET" && req.url === "/health") {
     return json(res, 200, { status: "ok", uptime: process.uptime() });
   }
 
-  // Only accept POST /webhook
   if (req.method !== "POST" || req.url !== "/webhook") {
     return json(res, 404, { error: "Not found" });
   }
 
   const rawBody = await readBody(req);
 
-  // Verify signature
   if (WEBHOOK_SECRET) {
     const timestamp = req.headers["x-crisp-request-timestamp"] as string | undefined;
     const signature = req.headers["x-crisp-signature"] as string | undefined;
 
     if (!verifySignature(rawBody, timestamp, signature, WEBHOOK_SECRET)) {
-      console.warn(`[webhook] Signature verification failed — allowing through (TODO: fix secret)`);
-      // TODO: Fix CRISP_WEBHOOK_SECRET and re-enable rejection
-      // return json(res, 401, { error: "Invalid signature" });
+      console.warn(`[webhook] Signature verification failed — allowing through`);
     }
-  } else {
-    console.warn(`[webhook] No CRISP_WEBHOOK_SECRET set — skipping verification`);
   }
 
   let payload: { website_id: string; event: string; data: Record<string, unknown> };
@@ -209,12 +155,10 @@ const server = createServer(async (req, res) => {
 
   const { event, data, website_id } = payload;
 
-  // Filter by website ID
   if (WEBSITE_ID && website_id !== WEBSITE_ID) {
     return json(res, 200, { action: "ignored", reason: "wrong website_id" });
   }
 
-  // Only handle user messages
   if (event !== "message:send" || data.from !== "user") {
     return json(res, 200, { action: "ignored", reason: `event=${event}, from=${data.from}` });
   }
@@ -226,18 +170,16 @@ const server = createServer(async (req, res) => {
     data.type as string
   );
 
-  console.log(`[webhook] New message from ${nickname} in ${sessionId}: ${messageText.substring(0, 100)}`);
+  console.log(`[webhook] ${nickname} in ${sessionId}: ${messageText.substring(0, 100)}`);
 
-  // Debounce: skip if same session triggered recently
   const now = Date.now();
   const last = recentTriggers.get(sessionId);
   if (last && now - last < DEBOUNCE_MS) {
-    console.log(`[webhook] Debounced — session ${sessionId} triggered ${Math.round((now - last) / 1000)}s ago`);
+    console.log(`[webhook] Debounced — ${sessionId} (${Math.round((now - last) / 1000)}s ago)`);
     return json(res, 200, { success: true, session_id: sessionId, agent_triggered: false, reason: "debounced" });
   }
   recentTriggers.set(sessionId, now);
 
-  // Trigger agent asynchronously — respond to Crisp immediately
   triggerAgent(sessionId, nickname, messageText);
 
   return json(res, 200, {
@@ -250,8 +192,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[webhook] Crisp webhook handler listening on port ${PORT}`);
-  console.log(`[webhook] Signature verification: ${WEBHOOK_SECRET ? "enabled" : "DISABLED"}`);
-  console.log(`[webhook] Website filter: ${WEBSITE_ID || "none"}`);
-  console.log(`[webhook] Agent trigger: ${TRIGGER_MODE}${TRIGGER_MODE === "http" ? ` → ${GATEWAY_URL}` : ""}`);
+  console.log(`[webhook] Listening on port ${PORT}`);
+  console.log(`[webhook] Gateway: ${GATEWAY_URL}`);
+  console.log(`[webhook] Signature: ${WEBHOOK_SECRET ? "enabled" : "DISABLED"}`);
 });

@@ -1,16 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Crisp MCP Server — standalone HTTP transport (Docker / Coolify)
+ * Crisp MCP Server — HTTP transport for Docker / Coolify
  *
- * Unlike the Vercel serverless version (api/mcp.ts), this is a persistent
- * process that reuses the CrispClient and MCP server across requests.
- *
- * Key differences from Vercel:
- * - Single CrispClient instance (no cold-start per request)
- * - Persistent MCP server (reconnects transport per request, keeps tools)
- * - KB loaded from local file (no Vercel Blob dependency)
- * - Long-lived process with health checks
+ * Persistent process: reuses CrispClient, loads KB from local volume.
  */
 
 import { createServer as createHttpServer } from "http";
@@ -32,7 +25,6 @@ if (!CRISP_IDENTIFIER || !CRISP_KEY || !CRISP_WEBSITE_ID) {
   process.exit(1);
 }
 
-// Persistent instances — reused across requests (not Vercel-style cold starts)
 const crispClient = new CrispClient({
   identifier: CRISP_IDENTIFIER,
   key: CRISP_KEY,
@@ -96,8 +88,6 @@ const httpServer = createHttpServer(async (req, res) => {
 
   requestCount++;
 
-  // New transport per request (MCP protocol requirement), but reuse the
-  // CrispClient and server config — avoids Vercel's cold-start overhead.
   const mcpServer = createServer(crispClient, {
     kb: litellmApiKey ? { litellmBaseUrl, litellmApiKey } : undefined,
   });
