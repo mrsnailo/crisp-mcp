@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Crisp MCP Server — standalone HTTP transport (Docker / Coolify)
+ * Crisp MCP Server — standalone HTTP transport
  *
- * Unlike the Vercel serverless version (api/mcp.ts), this is a persistent
- * process that reuses the CrispClient and MCP server across requests.
- *
- * Key differences from Vercel:
- * - Single CrispClient instance (no cold-start per request)
- * - Persistent MCP server (reconnects transport per request, keeps tools)
- * - KB loaded from local file (no Vercel Blob dependency)
- * - Long-lived process with health checks
+ * Self-hosted alternative to the Vercel serverless deployment.
+ * Runs as a persistent HTTP server with Bearer token auth.
  */
 
 import { createServer as createHttpServer } from "http";
@@ -32,17 +26,6 @@ if (!CRISP_IDENTIFIER || !CRISP_KEY || !CRISP_WEBSITE_ID) {
   process.exit(1);
 }
 
-// Persistent instances — reused across requests (not Vercel-style cold starts)
-const crispClient = new CrispClient({
-  identifier: CRISP_IDENTIFIER,
-  key: CRISP_KEY,
-  websiteId: CRISP_WEBSITE_ID,
-});
-
-const litellmApiKey = process.env.LITELLM_API_KEY;
-const litellmBaseUrl =
-  process.env.LITELLM_BASE_URL || "https://litellm.tubeonai.com/v1";
-
 function authenticate(authHeader: string | undefined): boolean {
   if (!MCP_AUTH_TOKEN) return false;
   if (!authHeader?.startsWith("Bearer ")) return false;
@@ -58,19 +41,11 @@ function readBody(req: import("http").IncomingMessage): Promise<string> {
   });
 }
 
-let requestCount = 0;
-
 const httpServer = createHttpServer(async (req, res) => {
   // Health check
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        status: "ok",
-        uptime: process.uptime(),
-        requests: requestCount,
-      })
-    );
+    res.end(JSON.stringify({ status: "ok", uptime: process.uptime() }));
     return;
   }
 
@@ -94,10 +69,17 @@ const httpServer = createHttpServer(async (req, res) => {
     return;
   }
 
-  requestCount++;
+  // Create fresh MCP server + transport per request (stateless)
+  const crispClient = new CrispClient({
+    identifier: CRISP_IDENTIFIER,
+    key: CRISP_KEY,
+    websiteId: CRISP_WEBSITE_ID,
+  });
 
-  // New transport per request (MCP protocol requirement), but reuse the
-  // CrispClient and server config — avoids Vercel's cold-start overhead.
+  const litellmApiKey = process.env.LITELLM_API_KEY;
+  const litellmBaseUrl =
+    process.env.LITELLM_BASE_URL || "https://litellm.tubeonai.com/v1";
+
   const mcpServer = createServer(crispClient, {
     kb: litellmApiKey ? { litellmBaseUrl, litellmApiKey } : undefined,
   });
@@ -132,5 +114,4 @@ const httpServer = createHttpServer(async (req, res) => {
 httpServer.listen(PORT, () => {
   console.log(`[crisp-mcp] HTTP MCP server listening on port ${PORT}`);
   console.log(`[crisp-mcp] Auth: ${MCP_AUTH_TOKEN ? "enabled" : "DISABLED"}`);
-  console.log(`[crisp-mcp] KB source: local file (data/kb-embeddings.json)`);
 });

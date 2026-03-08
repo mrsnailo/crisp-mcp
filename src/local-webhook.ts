@@ -1,22 +1,14 @@
 #!/usr/bin/env node
 /**
- * Crisp Webhook Handler
+ * Local Crisp Webhook Handler
  *
  * Receives Crisp webhook events and triggers the OpenClaw support agent.
- *
- * Supports two modes:
- *   - CLI mode (default, bare metal): shells out to `openclaw agent` CLI
- *   - HTTP mode (Docker/Coolify): POSTs to OpenClaw gateway API
- *
- * Set OPENCLAW_TRIGGER_MODE=http and OPENCLAW_GATEWAY_URL for Docker deployments.
+ * Runs directly on the VM so it can call `openclaw agent` CLI.
  *
  * Env vars:
- *   CRISP_WEBHOOK_SECRET     — Signing secret for HMAC-SHA256 verification
- *   CRISP_WEBSITE_ID         — Filter events to this website (optional)
- *   WEBHOOK_PORT             — Listen port (default: 3001)
- *   OPENCLAW_TRIGGER_MODE    — "cli" (default) or "http"
- *   OPENCLAW_GATEWAY_URL     — Gateway base URL (e.g. http://openclaw-support:18789)
- *   OPENCLAW_GATEWAY_TOKEN   — Auth token for gateway API
+ *   CRISP_WEBHOOK_SECRET  — Signing secret for HMAC-SHA256 verification
+ *   CRISP_WEBSITE_ID      — Filter events to this website (optional)
+ *   WEBHOOK_PORT           — Listen port (default: 3001)
  */
 
 import { createServer, IncomingMessage, ServerResponse } from "http";
@@ -26,11 +18,6 @@ import { execFile } from "child_process";
 const PORT = parseInt(process.env.WEBHOOK_PORT || "3001", 10);
 const WEBHOOK_SECRET = process.env.CRISP_WEBHOOK_SECRET || "";
 const WEBSITE_ID = process.env.CRISP_WEBSITE_ID || "";
-
-// Docker/Coolify: trigger agent via HTTP gateway instead of CLI
-const TRIGGER_MODE = process.env.OPENCLAW_TRIGGER_MODE || "cli";
-const GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || "http://openclaw-support:18789";
-const GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || "";
 
 // --- Debounce ---
 
@@ -92,8 +79,8 @@ function extractContent(
   return `[${msgType}]`;
 }
 
-function buildPrompt(sessionId: string, nickname: string, messageText: string): string {
-  return [
+function triggerAgent(sessionId: string, nickname: string, messageText: string) {
+  const prompt = [
     `New Crisp live chat message received.`,
     ``,
     `Customer: ${nickname}`,
@@ -106,9 +93,7 @@ function buildPrompt(sessionId: string, nickname: string, messageText: string): 
     `3. Classify → follow the matching tier (KB search, investigate, or escalate)`,
     `4. Reply via crisp.send_message`,
   ].join("\n");
-}
 
-function triggerAgentViaCli(sessionId: string, prompt: string) {
   execFile(
     "openclaw",
     [
@@ -122,53 +107,14 @@ function triggerAgentViaCli(sessionId: string, prompt: string) {
     { timeout: 120_000 },
     (error, stdout, stderr) => {
       if (error) {
-        console.error(`[agent] CLI error:`, error.message);
+        console.error(`[agent] Error:`, error.message);
         if (stderr) console.error(`[agent] stderr:`, stderr);
       } else {
-        console.log(`[agent] CLI done for session ${sessionId}`);
+        console.log(`[agent] Done for session ${sessionId}`);
         if (stdout) console.log(`[agent] Output:`, stdout.substring(0, 200));
       }
     }
   );
-}
-
-async function triggerAgentViaHttp(sessionId: string, prompt: string) {
-  try {
-    const response = await fetch(`${GATEWAY_URL}/api/agent/run`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(GATEWAY_TOKEN ? { Authorization: `Bearer ${GATEWAY_TOKEN}` } : {}),
-      },
-      body: JSON.stringify({
-        agentId: "support",
-        message: prompt,
-        deliver: true,
-        replyChannel: "telegram:support",
-        replyTo: "1032439436",
-      }),
-      signal: AbortSignal.timeout(120_000),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error(`[agent] HTTP error ${response.status}: ${text}`);
-    } else {
-      console.log(`[agent] HTTP triggered for session ${sessionId}`);
-    }
-  } catch (err) {
-    console.error(`[agent] HTTP error:`, (err as Error).message);
-  }
-}
-
-function triggerAgent(sessionId: string, nickname: string, messageText: string) {
-  const prompt = buildPrompt(sessionId, nickname, messageText);
-
-  if (TRIGGER_MODE === "http") {
-    triggerAgentViaHttp(sessionId, prompt);
-  } else {
-    triggerAgentViaCli(sessionId, prompt);
-  }
 }
 
 // --- Server ---
@@ -253,5 +199,4 @@ server.listen(PORT, () => {
   console.log(`[webhook] Crisp webhook handler listening on port ${PORT}`);
   console.log(`[webhook] Signature verification: ${WEBHOOK_SECRET ? "enabled" : "DISABLED"}`);
   console.log(`[webhook] Website filter: ${WEBSITE_ID || "none"}`);
-  console.log(`[webhook] Agent trigger: ${TRIGGER_MODE}${TRIGGER_MODE === "http" ? ` → ${GATEWAY_URL}` : ""}`);
 });

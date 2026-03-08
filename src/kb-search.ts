@@ -40,11 +40,7 @@ export interface SearchResult {
 // Cached KB data
 let cachedKB: KBData | null = null;
 let cacheTimestamp = 0;
-
-// In Docker/Coolify: cache indefinitely (file is baked into image).
-// On Vercel: 10min TTL since Blob storage may be updated externally.
-const IS_DOCKER = !!process.env.DOCKER || !process.env.VERCEL;
-const CACHE_TTL_MS = IS_DOCKER ? Infinity : 10 * 60 * 1000;
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 async function loadFromBlob(): Promise<KBData | null> {
   const blobUrl = process.env.KB_BLOB_URL;
@@ -60,17 +56,12 @@ async function loadFromBlob(): Promise<KBData | null> {
 }
 
 function loadFromFile(): KBData | null {
-  // Check KB_FILE_PATH env first (Docker volume mount), then standard locations
-  const envPath = process.env.KB_FILE_PATH;
   const candidates = [
-    ...(envPath ? [envPath] : []),
     path.join(__dirname, "..", "data", "kb-embeddings.json"),
     path.join(__dirname, "..", "..", "data", "kb-embeddings.json"),
-    "/app/data/kb-embeddings.json", // Docker default
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
-      console.log(`[kb] Loading knowledge base from ${p}`);
       return JSON.parse(fs.readFileSync(p, "utf-8")) as KBData;
     }
   }
@@ -83,15 +74,11 @@ async function loadKnowledgeBase(): Promise<KBData> {
     return cachedKB;
   }
 
-  // In Docker: local file first (baked in), Blob as fallback.
-  // On Vercel: Blob first (managed), local file as fallback.
-  const kb = IS_DOCKER
-    ? loadFromFile() || (await loadFromBlob())
-    : (await loadFromBlob()) || loadFromFile();
-
+  // Try Vercel Blob first, then local file fallback
+  const kb = (await loadFromBlob()) || loadFromFile();
   if (!kb) {
     throw new Error(
-      "Knowledge base not found. Mount data/kb-embeddings.json or set KB_BLOB_URL."
+      "Knowledge base not found. Run kb-sync or set KB_BLOB_URL."
     );
   }
 
