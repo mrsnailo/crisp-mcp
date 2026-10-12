@@ -21,7 +21,7 @@ npm run build
 The repo ships three ways to run the same tool set (`src/server.ts` factory):
 
 1. **stdio** — `src/index.ts`. Entry point after build is `dist/index.js`. Used by Claude Code and other MCP-compatible clients. Exits with an error if `CRISP_IDENTIFIER`, `CRISP_KEY`, or `CRISP_WEBSITE_ID` are missing.
-2. **Standalone HTTP** — `src/http-server.ts`. Self-hosted persistent server. Listens on `MCP_PORT` (default `3002`). Requires `MCP_AUTH_TOKEN` (Bearer auth; requests without a matching token get `401 Unauthorized`). Routes: `GET /health` (status/uptime, no auth), `POST /mcp` and `POST /` (MCP, authenticated).
+2. **Standalone HTTP** — `src/http-server.ts`. Self-hosted persistent server. Listens on `MCP_PORT` (default `3002`). Requires `MCP_AUTH_TOKEN` (Bearer auth; requests without a matching token get `401 Unauthorized` — if the token is unset server-side, every request is rejected). Routes: `GET /health` (status/uptime, no auth), `POST /mcp` and `POST /` (MCP, authenticated); anything else returns `404`.
 3. **Vercel serverless** — `api/mcp.ts`. Stateless (fresh server + transport per request, `sessionIdGenerator: undefined`). Bearer auth via `MCP_AUTH_TOKEN`. Only `POST` is served; `GET`/`DELETE` return `405 Method not allowed in stateless mode`. `maxDuration: 60` (`vercel.json`).
 
 ## Usage with Claude Code (stdio)

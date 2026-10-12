@@ -2,7 +2,7 @@
 
 ### "Error: CRISP_IDENTIFIER, CRISP_KEY, and CRISP_WEBSITE_ID environment variables are required"
 
-- Thrown at startup by `src/index.ts`, `src/http-server.ts`, and `api/mcp.ts` when any of the three is missing. Check env or the `env` block in `~/.claude/settings.json` (see [Configuration](configuration.md)).
+- `src/index.ts` and `src/http-server.ts` exit at startup when any of the three is missing. `api/mcp.ts` throws the same error per request instead (a Vercel deploy looks healthy but every `POST` fails). Check env or the `env` block in `~/.claude/settings.json` (see [Configuration](configuration.md)).
 
 ### "Crisp API error: 401 Unauthorized"
 
@@ -25,15 +25,15 @@
 
 ### HTTP `GET`/`DELETE` returns `405 Method not allowed in stateless mode`
 
-- Expected on the Vercel deployment (`api/mcp.ts`): only `POST` serves MCP in stateless mode.
+- Expected on the Vercel deployment (`api/mcp.ts`): only `POST` serves MCP in stateless mode. The standalone server (`src/http-server.ts`) answers `404 Not found` instead for unknown routes/methods (only `GET /health` and `POST /mcp` or `/` exist).
 
 ### "Knowledge base search is not configured. Set LITELLM_API_KEY and LITELLM_BASE_URL."
 
-- `search_knowledge_base` needs `LITELLM_API_KEY` (see [Configuration](configuration.md)).
+- `search_knowledge_base` needs `LITELLM_API_KEY`. `LITELLM_BASE_URL` has a default, so only the key gates the tool (see [Configuration](configuration.md)).
 
 ### "Knowledge base not available. Run kb-sync or set KB_BLOB_URL."
 
-- No KB data found. Run `npm run kb:sync` to generate `data/kb-embeddings.json`, or set `KB_BLOB_URL` to the Vercel Blob JSON (produced by `GET /api/kb-sync`).
+- No KB data found. For local/stdio use, run `npm run kb:sync` to generate `data/kb-embeddings.json`. For the Vercel deployment that file doesn't exist at runtime — trigger `GET /api/kb-sync` and set `KB_BLOB_URL` to the `blob_url` in its response.
 
 ### "Embedding API error {status}: ..."
 

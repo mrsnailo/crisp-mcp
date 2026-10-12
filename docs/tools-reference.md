@@ -1,6 +1,6 @@
 # Tools Reference
 
-Defined in `src/server.ts`. All tool results are returned as JSON text; failures return `{ "error": "<message>" }` with `isError: true`.
+Defined in `src/server.ts`. Most tools return JSON text (`get_conversation_with_messages` returns formatted plain text); failures return `{ "error": "<message>" }` with `isError: true`.
 
 ## Conversation Management
 

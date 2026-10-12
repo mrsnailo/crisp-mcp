@@ -39,6 +39,8 @@ Use the send_message tool with session_id and content
 Use the send_message tool with type: "note"
 ```
 
+Caution: the default `type` is customer-visible `text`. Omitting `type` sends your content to the customer.
+
 ### Mention an operator (push/email notification)
 
 Get the operator ID first, then mention with a note:

@@ -19,10 +19,10 @@ Auth uses `Basic base64(identifier:key)` with header `X-Crisp-Tier: plugin` (`sr
 | `LITELLM_API_KEY` | unset (KB tool disabled) | `search_knowledge_base` in `src/index.ts`, `src/http-server.ts`, `api/mcp.ts` |
 | `LITELLM_BASE_URL` | `https://litellm.tubeonai.com/v1` | Embedding/query requests in `src/kb-search.ts`, `src/kb-sync.ts` |
 | `KB_BLOB_URL` | unset (falls back to `data/kb-embeddings.json`) | KB data source in `src/kb-search.ts` |
-| `MCP_AUTH_TOKEN` | unset | Bearer auth for `src/http-server.ts` and `api/mcp.ts`; manual trigger auth for `api/kb-sync.ts` |
+| `MCP_AUTH_TOKEN` | unset (deny-all: HTTP transports reject every request) | Bearer auth for `src/http-server.ts` and `api/mcp.ts`; manual trigger auth for `api/kb-sync.ts` |
 | `MCP_PORT` | `3002` | Listen port in `src/http-server.ts` |
-| `CRON_SECRET` | unset | Vercel cron auth for `GET /api/kb-sync` |
-| `CRISP_WEBHOOK_SECRET` | unset (verification skipped with a warning) | HMAC-SHA256 verification in `api/webhook.ts`, `src/local-webhook.ts` |
+| `CRON_SECRET` | unset (`MCP_AUTH_TOKEN` Bearer is also accepted) | Vercel cron auth for `GET /api/kb-sync` |
+| `CRISP_WEBHOOK_SECRET` | unset (verification skipped: silently in `api/webhook.ts`, with a warning in `src/local-webhook.ts`) | HMAC-SHA256 verification in `api/webhook.ts` (rejects bad signatures with 401), `src/local-webhook.ts` (currently warn-only: bad signatures are allowed through, see TODO in code) |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | unset (notification not delivered) | Telegram forward in `api/webhook.ts` |
 | `WEBHOOK_PORT` | `3001` | Listen port in `src/local-webhook.ts` |
 
